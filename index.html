@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Damo Food Tracker</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1A1A2E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+<style>
+  :root {
+    --bg: #1A1A2E; --panel: #16213E; --accent: #0F3460;
+    --cyan: #00E5FF; --green: #00E676; --orange: #FFAb40;
+    --red: #FF5252; --white: #E0E0E0; --dim: #607080;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--white); min-height: 100vh; padding: 12px; padding-top: max(12px, env(safe-area-inset-top)); }
+  h1 { text-align: center; color: var(--cyan); font-size: 18px; margin-bottom: 12px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+  .tab { flex: 1; padding: 10px; background: var(--panel); border: 2px solid var(--accent); border-radius: 8px; color: var(--dim); font-size: 14px; font-weight: 600; text-align: center; cursor: pointer; transition: all 0.2s; -webkit-tap-highlight-color: transparent; }
+  .tab.active { border-color: var(--cyan); color: var(--cyan); background: var(--accent); }
+  .section { display: none; }
+  .section.active { display: block; }
+  #scanner-container { width: 100%; max-width: 400px; height: 250px; margin: 0 auto 12px; border-radius: 12px; overflow: hidden; border: 2px solid var(--accent); position: relative; background: #000; }
+  #scanner-container video { width: 100%; height: 100%; object-fit: cover; }
+  #scanner-container canvas { display: none; }
+  .scan-line { position: absolute; top: 50%; left: 10%; width: 80%; height: 2px; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); animation: scan 2s ease-in-out infinite; }
+  @keyframes scan { 0%, 100% { top: 30%; } 50% { top: 70%; } }
+  .product-card { background: var(--panel); border-radius: 12px; padding: 16px; margin-bottom: 12px; border: 1px solid var(--accent); display: none; }
+  .product-card.visible { display: block; }
+  .product-name { font-size: 16px; font-weight: 600; color: var(--white); margin-bottom: 4px; }
+  .product-brand { font-size: 12px; color: var(--dim); margin-bottom: 4px; }
+  .product-source { font-size: 11px; padding: 2px 8px; border-radius: 10px; display: inline-block; margin-bottom: 8px; }
+  .source-local { background: var(--green); color: #000; }
+  .source-off { background: var(--orange); color: #000; }
+  .macro-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .macro-item { text-align: center; flex: 1; }
+  .macro-value { font-size: 20px; font-weight: 700; }
+  .macro-label { font-size: 10px; color: var(--dim); text-transform: uppercase; }
+  .macro-kcal .macro-value { color: var(--orange); }
+  .macro-protein .macro-value { color: var(--cyan); }
+  .macro-carbs .macro-value { color: var(--orange); }
+  .macro-fats .macro-value { color: var(--red); }
+  .per100 { font-size: 11px; color: var(--dim); text-align: center; margin-bottom: 8px; }
+  .input-group { margin-bottom: 12px; }
+  .input-group label { display: block; font-size: 12px; color: var(--dim); margin-bottom: 4px; text-transform: uppercase; }
+  .input-group input { width: 100%; padding: 10px 12px; background: var(--accent); border: 1px solid var(--dim); border-radius: 8px; color: var(--white); font-size: 16px; outline: none; -webkit-appearance: none; }
+  .input-group input:focus { border-color: var(--cyan); }
+  .input-row { display: flex; gap: 8px; }
+  .input-row .input-group { flex: 1; }
+  .btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.2s; margin-bottom: 8px; -webkit-tap-highlight-color: transparent; }
+  .btn-primary { background: var(--cyan); color: #000; }
+  .btn-primary:active { background: #00b8d4; transform: scale(0.98); }
+  .btn-secondary { background: var(--accent); color: var(--white); border: 1px solid var(--dim); }
+  .btn-save { background: var(--green); color: #000; }
+  .btn-save:active { background: #00c853; transform: scale(0.98); }
+  .btn:disabled { opacity: 0.5; }
+  .meal-pills { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .meal-pill { padding: 6px 14px; border-radius: 20px; background: var(--panel); border: 1px solid var(--accent); color: var(--dim); font-size: 13px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .meal-pill.active { background: var(--accent); border-color: var(--cyan); color: var(--cyan); }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--green); color: #000; padding: 12px 24px; border-radius: 10px; font-weight: 600; font-size: 14px; transition: transform 0.3s; z-index: 1000; }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .summary-card { background: var(--panel); border-radius: 12px; padding: 16px; margin-bottom: 12px; border: 1px solid var(--accent); }
+  .summary-title { font-size: 13px; color: var(--dim); margin-bottom: 8px; text-transform: uppercase; }
+  .summary-macros { display: flex; justify-content: space-around; }
+  .log-item { background: var(--accent); border-radius: 8px; padding: 10px 12px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+  .log-item-name { font-size: 14px; color: var(--white); }
+  .log-item-detail { font-size: 11px; color: var(--dim); }
+  .log-item-kcal { font-size: 16px; font-weight: 600; color: var(--orange); }
+  .status-msg { text-align: center; font-size: 13px; color: var(--dim); padding: 8px; }
+  .ean-manual-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .ean-manual-row input { flex: 1; padding: 10px 12px; background: var(--accent); border: 1px solid var(--dim); border-radius: 8px; color: var(--white); font-size: 16px; outline: none; -webkit-appearance: none; }
+  .ean-manual-row button { padding: 10px 16px; border-radius: 8px; border: none; background: var(--cyan); color: #000; font-weight: 600; font-size: 14px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .notfound-card { background: var(--panel); border-radius: 12px; padding: 16px; margin-bottom: 12px; border: 1px solid var(--red); display: none; }
+  .notfound-card.visible { display: block; }
+  .notfound-title { font-size: 14px; color: var(--red); margin-bottom: 8px; font-weight: 600; }
+  .notfound-ean { font-size: 12px; color: var(--dim); margin-bottom: 12px; }
+</style>
+</head>
+<body>
+
+<h1>DAMO FOOD TRACKER</h1>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('scan')">Skenuj</div>
+  <div class="tab" onclick="switchTab('manual')">Manualne</div>
+  <div class="tab" onclick="switchTab('log')">Dnes</div>
+</div>
+
+<!-- TAB 1: SCANNER -->
+<div id="tab-scan" class="section active">
+  <div id="scanner-container"><div class="scan-line"></div></div>
+  <button class="btn btn-secondary" onclick="startScanner()" id="btn-start-scan">Spusti kameru</button>
+
+  <div class="ean-manual-row">
+    <input type="number" id="ean-manual-input" placeholder="Zadaj EAN kod rucne" inputmode="numeric">
+    <button onclick="manualEanLookup()">Hladaj</button>
+  </div>
+
+  <div class="product-card" id="scanned-product">
+    <div class="product-name" id="prod-name">-</div>
+    <div class="product-brand" id="prod-brand">-</div>
+    <div class="product-source" id="prod-source"></div>
+    <div class="per100">na 100g</div>
+    <div class="macro-row">
+      <div class="macro-item macro-kcal"><div class="macro-value" id="prod-kcal">-</div><div class="macro-label">kcal</div></div>
+      <div class="macro-item macro-protein"><div class="macro-value" id="prod-protein">-</div><div class="macro-label">protein</div></div>
+      <div class="macro-item macro-carbs"><div class="macro-value" id="prod-carbs">-</div><div class="macro-label">sacharidy</div></div>
+      <div class="macro-item macro-fats"><div class="macro-value" id="prod-fats">-</div><div class="macro-label">tuky</div></div>
+    </div>
+    <div class="input-group"><label>Gramaz (g)</label><input type="number" id="scan-grams" value="100" inputmode="numeric"></div>
+    <div class="meal-pills" id="scan-meals">
+      <div class="meal-pill active" data-meal="breakfast">Ranajky</div>
+      <div class="meal-pill" data-meal="lunch">Obed</div>
+      <div class="meal-pill" data-meal="dinner">Vecera</div>
+      <div class="meal-pill" data-meal="snack">Snack</div>
+    </div>
+    <button class="btn btn-primary" onclick="logScannedFood()">Pridat</button>
+    <button class="btn btn-save" id="btn-save-product" onclick="saveToMyProducts()" style="display:none">Ulozit do mojich produktov</button>
+  </div>
+
+  <div class="notfound-card" id="notfound-card">
+    <div class="notfound-title">Produkt nenajdeny</div>
+    <div class="notfound-ean" id="notfound-ean">EAN: -</div>
+    <div class="input-group"><label>Nazov produktu</label><input type="text" id="new-prod-name" placeholder="napr. GymBeam Mineral Water"></div>
+    <div class="input-group"><label>Znacka</label><input type="text" id="new-prod-brand" placeholder="napr. GymBeam"></div>
+    <div class="input-row">
+      <div class="input-group"><label>Kcal / 100g</label><input type="number" id="new-prod-kcal" placeholder="0" inputmode="numeric"></div>
+      <div class="input-group"><label>Protein / 100g</label><input type="number" id="new-prod-protein" placeholder="0" inputmode="decimal"></div>
+    </div>
+    <div class="input-row">
+      <div class="input-group"><label>Sacharidy / 100g</label><input type="number" id="new-prod-carbs" placeholder="0" inputmode="decimal"></div>
+      <div class="input-group"><label>Tuky / 100g</label><input type="number" id="new-prod-fats" placeholder="0" inputmode="decimal"></div>
+    </div>
+    <button class="btn btn-save" onclick="saveNewProduct()">Ulozit produkt + pridat</button>
+  </div>
+
+  <div class="status-msg" id="scan-status">Klikni na "Spusti kameru" a nasmeruj na ciarovy kod</div>
+</div>
+
+<!-- TAB 2: MANUAL -->
+<div id="tab-manual" class="section">
+  <div class="input-group"><label>Nazov jedla</label><input type="text" id="man-name" placeholder="napr. Ryza s kuracim"></div>
+  <div class="input-row">
+    <div class="input-group"><label>Kcal</label><input type="number" id="man-kcal" placeholder="0" inputmode="numeric"></div>
+    <div class="input-group"><label>Gramaz (g)</label><input type="number" id="man-grams" placeholder="100" inputmode="numeric"></div>
+  </div>
+  <div class="input-row">
+    <div class="input-group"><label>Protein (g)</label><input type="number" id="man-protein" placeholder="0" inputmode="decimal"></div>
+    <div class="input-group"><label>Sacharidy (g)</label><input type="number" id="man-carbs" placeholder="0" inputmode="decimal"></div>
+    <div class="input-group"><label>Tuky (g)</label><input type="number" id="man-fats" placeholder="0" inputmode="decimal"></div>
+  </div>
+  <div class="meal-pills" id="manual-meals">
+    <div class="meal-pill active" data-meal="breakfast">Ranajky</div>
+    <div class="meal-pill" data-meal="lunch">Obed</div>
+    <div class="meal-pill" data-meal="dinner">Vecera</div>
+    <div class="meal-pill" data-meal="snack">Snack</div>
+  </div>
+  <button class="btn btn-primary" onclick="logManualFood()">Pridat jedlo</button>
+</div>
+
+<!-- TAB 3: TODAY -->
+<div id="tab-log" class="section">
+  <div class="summary-card">
+    <div class="summary-title">Dnes celkovo</div>
+    <div class="summary-macros">
+      <div class="macro-item macro-kcal"><div class="macro-value" id="total-kcal">0</div><div class="macro-label">kcal</div></div>
+      <div class="macro-item macro-protein"><div class="macro-value" id="total-protein">0</div><div class="macro-label">protein</div></div>
+      <div class="macro-item macro-carbs"><div class="macro-value" id="total-carbs">0</div><div class="macro-label">sacharidy</div></div>
+      <div class="macro-item macro-fats"><div class="macro-value" id="total-fats">0</div><div class="macro-label">tuky</div></div>
+    </div>
+  </div>
+  <div id="food-log-list"><div class="status-msg">Zatial nic zapisane.</div></div>
+  <button class="btn btn-primary" onclick="syncTotalsToSheet()">Sync do Google Sheets</button>
+</div>
+
+<div class="toast" id="toast">Pridane!</div>
+
+<script>
+// ═══════ CONFIG ═══════
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby9-yZuhlYyNEkyldO09LJx84ehwNJkQDLOYq8WHeuTf_sa7yx2guMyi2w-HNHrQjzy/exec';
+
+// ═══════ STATE ═══════
+let todayLog = [];
+let selectedMeal = 'breakfast';
+let scannedNutrientsPer100 = null;
+let lastScannedEan = null;
+let lastProductSource = null;
+let scannerRunning = false;
+
+// ═══════ HELPER: volanie Google Apps Script ═══════
+async function callScript(action, data) {
+  try {
+    const payload = { action: action, ...data };
+    const resp = await fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload)
+    });
+    return await resp.json();
+  } catch(e) {
+    console.error('Script call error:', e);
+    return null;
+  }
+}
+
+// ═══════ TABS ═══════
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', ['scan','manual','log'][i] === tab));
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  if (tab === 'log') updateSummary();
+  if (tab !== 'scan' && scannerRunning) stopScanner();
+}
+
+// ═══════ MEAL PILLS ═══════
+document.querySelectorAll('.meal-pills').forEach(c => {
+  c.addEventListener('click', e => {
+    const pill = e.target.closest('.meal-pill');
+    if (!pill) return;
+    c.querySelectorAll('.meal-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    selectedMeal = pill.dataset.meal;
+  });
+});
+
+// ═══════ BARCODE SCANNER ═══════
+function startScanner() {
+  const btn = document.getElementById('btn-start-scan');
+  if (scannerRunning) { stopScanner(); return; }
+  btn.textContent = 'Zastav kameru';
+  scannerRunning = true;
+  document.getElementById('scan-status').textContent = 'Hladam ciarovy kod...';
+  hideCards();
+  Quagga.init({
+    inputStream: { type: "LiveStream", target: document.getElementById('scanner-container'),
+      constraints: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } } },
+    decoder: { readers: ["ean_reader", "ean_8_reader", "upc_reader", "upc_e_reader"] },
+    locate: true
+  }, function(err) {
+    if (err) { document.getElementById('scan-status').textContent = 'Chyba kamery: ' + err.message; scannerRunning = false; btn.textContent = 'Spusti kameru'; return; }
+    Quagga.start();
+  });
+  Quagga.onDetected(function(result) {
+    const code = result.codeResult.code;
+    document.getElementById('scan-status').textContent = 'Kod: ' + code + ' — hladam produkt...';
+    stopScanner();
+    lookupProduct(code);
+  });
+}
+
+function stopScanner() { try { Quagga.stop(); } catch(e) {} scannerRunning = false; document.getElementById('btn-start-scan').textContent = 'Spusti kameru'; }
+
+// ═══════ MANUÁLNE ZADANIE EAN ═══════
+function manualEanLookup() {
+  const ean = document.getElementById('ean-manual-input').value.trim();
+  if (!ean) { showToast('Zadaj EAN kod!'); return; }
+  document.getElementById('scan-status').textContent = 'Hladam kod: ' + ean + '...';
+  hideCards();
+  lookupProduct(ean);
+}
+
+// ═══════ HLAVNÉ HĽADANIE — najprv MyProducts, potom Open Food Facts ═══════
+async function lookupProduct(barcode) {
+  lastScannedEan = barcode;
+  const status = document.getElementById('scan-status');
+
+  // 1. Najprv hľadaj v MyProducts (Google Sheets)
+  status.textContent = 'Hladam v mojich produktoch...';
+  try {
+    const result = await callScript('lookupMyProduct', { ean: barcode });
+    if (result && result.found) {
+      showProduct(result.product, 'local', barcode);
+      return;
+    }
+  } catch(e) { /* pokračuj na OFF */ }
+
+  // 2. Open Food Facts
+  status.textContent = 'Nie je v mojich, hladam online...';
+  await lookupOpenFoodFacts(barcode);
+}
+
+// ═══════ OPEN FOOD FACTS ═══════
+async function lookupOpenFoodFacts(barcode) {
+  const status = document.getElementById('scan-status');
+  try {
+    const resp = await fetch('https://world.openfoodfacts.org/api/v2/product/' + barcode + '.json');
+    const data = await resp.json();
+    if (data.status !== 1 || !data.product) {
+      showNotFound(barcode);
+      return;
+    }
+    const p = data.product, n = p.nutriments || {};
+    const name = p.product_name || p.product_name_sk || p.product_name_cs || 'Neznamy produkt';
+    const product = {
+      name: name,
+      brand: p.brands || '',
+      kcal: Math.round(n['energy-kcal_100g'] || n['energy-kcal'] || 0),
+      protein: Math.round((n.proteins_100g || 0) * 10) / 10,
+      carbs: Math.round((n.carbohydrates_100g || 0) * 10) / 10,
+      fats: Math.round((n.fat_100g || 0) * 10) / 10
+    };
+    showProduct(product, 'off', barcode);
+  } catch(e) {
+    showNotFound(barcode);
+  }
+}
+
+// ═══════ ZOBRAZENIE NÁJDENÉHO PRODUKTU ═══════
+function showProduct(product, source, barcode) {
+  scannedNutrientsPer100 = product;
+  lastProductSource = source;
+  lastScannedEan = barcode;
+
+  document.getElementById('prod-name').textContent = product.name;
+  document.getElementById('prod-brand').textContent = product.brand || '';
+  document.getElementById('prod-kcal').textContent = product.kcal;
+  document.getElementById('prod-protein').textContent = product.protein;
+  document.getElementById('prod-carbs').textContent = product.carbs;
+  document.getElementById('prod-fats').textContent = product.fats;
+
+  const srcEl = document.getElementById('prod-source');
+  if (source === 'local') {
+    srcEl.textContent = 'Moja databaza';
+    srcEl.className = 'product-source source-local';
+    document.getElementById('btn-save-product').style.display = 'none';
+  } else {
+    srcEl.textContent = 'Open Food Facts';
+    srcEl.className = 'product-source source-off';
+    document.getElementById('btn-save-product').style.display = 'block';
+  }
+
+  document.getElementById('scanned-product').classList.add('visible');
+  document.getElementById('notfound-card').classList.remove('visible');
+  document.getElementById('scan-grams').value = 100;
+  document.getElementById('scan-status').textContent = 'Produkt najdeny! Zadaj gramaz a klikni Pridat.';
+}
+
+// ═══════ PRODUKT NENÁJDENÝ ═══════
+function showNotFound(barcode) {
+  lastScannedEan = barcode;
+  document.getElementById('scanned-product').classList.remove('visible');
+  document.getElementById('notfound-card').classList.add('visible');
+  document.getElementById('notfound-ean').textContent = 'EAN: ' + barcode;
+  document.getElementById('new-prod-name').value = '';
+  document.getElementById('new-prod-brand').value = '';
+  document.getElementById('new-prod-kcal').value = '';
+  document.getElementById('new-prod-protein').value = '';
+  document.getElementById('new-prod-carbs').value = '';
+  document.getElementById('new-prod-fats').value = '';
+  document.getElementById('scan-status').textContent = 'Nenajdene. Zadaj udaje a uloz do svojej databazy.';
+}
+
+function hideCards() {
+  document.getElementById('scanned-product').classList.remove('visible');
+  document.getElementById('notfound-card').classList.remove('visible');
+}
+
+// ═══════ ULOŽIŤ DO MyProducts (z Open Food Facts) ═══════
+async function saveToMyProducts() {
+  if (!scannedNutrientsPer100 || !lastScannedEan) return;
+  const result = await callScript('saveMyProduct', {
+    ean: lastScannedEan,
+    name: scannedNutrientsPer100.name,
+    kcal: scannedNutrientsPer100.kcal,
+    protein: scannedNutrientsPer100.protein,
+    carbs: scannedNutrientsPer100.carbs,
+    fats: scannedNutrientsPer100.fats,
+    brand: scannedNutrientsPer100.brand || ''
+  });
+  if (result) {
+    showToast('Ulozene do mojich produktov!');
+    document.getElementById('btn-save-product').style.display = 'none';
+    const srcEl = document.getElementById('prod-source');
+    srcEl.textContent = 'Moja databaza';
+    srcEl.className = 'product-source source-local';
+    lastProductSource = 'local';
+  } else {
+    showToast('Chyba pri ukladani');
+  }
+}
+
+// ═══════ ULOŽIŤ NOVÝ PRODUKT (ručne zadaný) ═══════
+async function saveNewProduct() {
+  const name = document.getElementById('new-prod-name').value.trim();
+  if (!name) { showToast('Zadaj nazov produktu!'); return; }
+
+  const productData = {
+    ean: lastScannedEan,
+    name: name,
+    brand: document.getElementById('new-prod-brand').value.trim(),
+    kcal: parseInt(document.getElementById('new-prod-kcal').value) || 0,
+    protein: parseFloat(document.getElementById('new-prod-protein').value) || 0,
+    carbs: parseFloat(document.getElementById('new-prod-carbs').value) || 0,
+    fats: parseFloat(document.getElementById('new-prod-fats').value) || 0
+  };
+
+  const result = await callScript('saveMyProduct', productData);
+  if (result) {
+    showToast('Produkt ulozeny!');
+    showProduct(productData, 'local', lastScannedEan);
+  } else {
+    showToast('Chyba pri ukladani');
+  }
+}
+
+// ═══════ LOG SCANNED ═══════
+async function logScannedFood() {
+  if (!scannedNutrientsPer100) return;
+  const grams = parseFloat(document.getElementById('scan-grams').value) || 100;
+  const ratio = grams / 100;
+  const entry = {
+    name: scannedNutrientsPer100.name, meal: selectedMeal, grams: grams,
+    kcal: Math.round(scannedNutrientsPer100.kcal * ratio),
+    protein: Math.round(scannedNutrientsPer100.protein * ratio * 10) / 10,
+    carbs: Math.round(scannedNutrientsPer100.carbs * ratio * 10) / 10,
+    fats: Math.round(scannedNutrientsPer100.fats * ratio * 10) / 10,
+    time: new Date().toLocaleTimeString('sk-SK', {hour:'2-digit', minute:'2-digit'})
+  };
+  todayLog.push(entry);
+  callScript('logFoodItem', entry);
+  showToast('Pridane: ' + entry.name);
+  document.getElementById('scanned-product').classList.remove('visible');
+  scannedNutrientsPer100 = null;
+  document.getElementById('scan-status').textContent = 'Skenuj dalsi produkt.';
+}
+
+// ═══════ LOG MANUAL ═══════
+async function logManualFood() {
+  const name = document.getElementById('man-name').value.trim();
+  if (!name) { showToast('Zadaj nazov jedla!'); return; }
+  const entry = {
+    name: name, meal: selectedMeal,
+    grams: parseFloat(document.getElementById('man-grams').value) || 0,
+    kcal: parseInt(document.getElementById('man-kcal').value) || 0,
+    protein: parseFloat(document.getElementById('man-protein').value) || 0,
+    carbs: parseFloat(document.getElementById('man-carbs').value) || 0,
+    fats: parseFloat(document.getElementById('man-fats').value) || 0,
+    time: new Date().toLocaleTimeString('sk-SK', {hour:'2-digit', minute:'2-digit'})
+  };
+  todayLog.push(entry);
+  callScript('logFoodItem', entry);
+  showToast('Pridane: ' + entry.name);
+  document.getElementById('man-name').value = '';
+  document.getElementById('man-kcal').value = '';
+  document.getElementById('man-grams').value = '';
+  document.getElementById('man-protein').value = '';
+  document.getElementById('man-carbs').value = '';
+  document.getElementById('man-fats').value = '';
+}
+
+// ═══════ SUMMARY ═══════
+function updateSummary() {
+  let tK=0, tP=0, tC=0, tF=0;
+  todayLog.forEach(e => { tK+=e.kcal; tP+=e.protein; tC+=e.carbs; tF+=e.fats; });
+  document.getElementById('total-kcal').textContent = tK;
+  document.getElementById('total-protein').textContent = Math.round(tP);
+  document.getElementById('total-carbs').textContent = Math.round(tC);
+  document.getElementById('total-fats').textContent = Math.round(tF);
+  const list = document.getElementById('food-log-list');
+  if (todayLog.length === 0) { list.innerHTML = '<div class="status-msg">Zatial nic zapisane.</div>'; return; }
+  list.innerHTML = todayLog.map(e => `<div class="log-item"><div><div class="log-item-name">${e.name}</div><div class="log-item-detail">${e.time} · ${e.meal} · ${e.grams}g · P:${e.protein} C:${e.carbs} F:${e.fats}</div></div><div class="log-item-kcal">${e.kcal}</div></div>`).reverse().join('');
+}
+
+// ═══════ SYNC TOTALS ═══════
+async function syncTotalsToSheet() {
+  let tK=0, tP=0, tC=0, tF=0;
+  todayLog.forEach(e => { tK+=e.kcal; tP+=e.protein; tC+=e.carbs; tF+=e.fats; });
+  const result = await callScript('syncTotals', { kcal: tK, protein: Math.round(tP), carbs: Math.round(tC), fats: Math.round(tF) });
+  if (result) { showToast('Odoslane do Google Sheets!'); }
+  else { showToast('Chyba pri odosielani'); }
+}
+
+// ═══════ TOAST ═══════
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+</script>
+</body>
+</html>
