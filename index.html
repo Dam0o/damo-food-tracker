@@ -262,50 +262,44 @@ function manualEanLookup() {
   lookupProduct(ean);
 }
 
-// ═══════ HLAVNÉ HĽADANIE — najprv MyProducts, potom Open Food Facts ═══════
+// ═══════ HLAVNÉ HĽADANIE — najprv internet, potom MyProducts, potom ručne ═══════
 async function lookupProduct(barcode) {
   lastScannedEan = barcode;
   const status = document.getElementById('scan-status');
 
-  // 1. Najprv hľadaj v MyProducts (Google Sheets)
-  status.textContent = 'Hladam v mojich produktoch...';
+  // 1. Najprv hľadaj online (Open Food Facts)
+  status.textContent = 'Hladam online...';
+  try {
+    const resp = await fetch('https://world.openfoodfacts.org/api/v2/product/' + barcode + '.json');
+    const data = await resp.json();
+    if (data.status === 1 && data.product) {
+      const p = data.product, n = p.nutriments || {};
+      const name = p.product_name || p.product_name_sk || p.product_name_cs || 'Neznamy produkt';
+      const product = {
+        name: name,
+        brand: p.brands || '',
+        kcal: Math.round(n['energy-kcal_100g'] || n['energy-kcal'] || 0),
+        protein: Math.round((n.proteins_100g || 0) * 10) / 10,
+        carbs: Math.round((n.carbohydrates_100g || 0) * 10) / 10,
+        fats: Math.round((n.fat_100g || 0) * 10) / 10
+      };
+      showProduct(product, 'off', barcode);
+      return;
+    }
+  } catch(e) { /* pokračuj ďalej */ }
+
+  // 2. Ak nie je online, skús MyProducts (Google Sheets)
+  status.textContent = 'Nie je online, hladam v mojich produktoch...';
   try {
     const result = await callScript('lookupMyProduct', { ean: barcode });
     if (result && result.found) {
       showProduct(result.product, 'local', barcode);
       return;
     }
-  } catch(e) { /* pokračuj na OFF */ }
+  } catch(e) { /* pokračuj na ručné zadanie */ }
 
-  // 2. Open Food Facts
-  status.textContent = 'Nie je v mojich, hladam online...';
-  await lookupOpenFoodFacts(barcode);
-}
-
-// ═══════ OPEN FOOD FACTS ═══════
-async function lookupOpenFoodFacts(barcode) {
-  const status = document.getElementById('scan-status');
-  try {
-    const resp = await fetch('https://world.openfoodfacts.org/api/v2/product/' + barcode + '.json');
-    const data = await resp.json();
-    if (data.status !== 1 || !data.product) {
-      showNotFound(barcode);
-      return;
-    }
-    const p = data.product, n = p.nutriments || {};
-    const name = p.product_name || p.product_name_sk || p.product_name_cs || 'Neznamy produkt';
-    const product = {
-      name: name,
-      brand: p.brands || '',
-      kcal: Math.round(n['energy-kcal_100g'] || n['energy-kcal'] || 0),
-      protein: Math.round((n.proteins_100g || 0) * 10) / 10,
-      carbs: Math.round((n.carbohydrates_100g || 0) * 10) / 10,
-      fats: Math.round((n.fat_100g || 0) * 10) / 10
-    };
-    showProduct(product, 'off', barcode);
-  } catch(e) {
-    showNotFound(barcode);
-  }
+  // 3. Nikde nenájdený — zobraz formulár na ručné zadanie
+  showNotFound(barcode);
 }
 
 // ═══════ ZOBRAZENIE NÁJDENÉHO PRODUKTU ═══════
