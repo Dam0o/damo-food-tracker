@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#1A1A2E">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
   :root {
     --bg: #1A1A2E; --panel: #16213E; --accent: #0F3460;
@@ -23,11 +23,12 @@
   .tab.active { border-color: var(--cyan); color: var(--cyan); background: var(--accent); }
   .section { display: none; }
   .section.active { display: block; }
-  #scanner-container { width: 100%; max-width: 400px; height: 250px; margin: 0 auto 12px; border-radius: 12px; overflow: hidden; border: 2px solid var(--accent); position: relative; background: #000; }
+  #scanner-container { width: 100%; max-width: 400px; margin: 0 auto 12px; border-radius: 12px; overflow: hidden; border: 2px solid var(--accent); position: relative; background: #000; }
   #scanner-container video { width: 100%; height: 100%; object-fit: cover; }
-  #scanner-container canvas { display: none; }
-  .scan-line { position: absolute; top: 50%; left: 10%; width: 80%; height: 2px; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); animation: scan 2s ease-in-out infinite; }
-  @keyframes scan { 0%, 100% { top: 30%; } 50% { top: 70%; } }
+  #reader { width: 100%; }
+  #reader video { border-radius: 12px !important; }
+  #reader__scan_region { border-radius: 12px !important; }
+  #reader__dashboard { display: none !important; }
   .product-card { background: var(--panel); border-radius: 12px; padding: 16px; margin-bottom: 12px; border: 1px solid var(--accent); display: none; }
   .product-card.visible { display: block; }
   .product-name { font-size: 16px; font-weight: 600; color: var(--white); margin-bottom: 4px; }
@@ -105,7 +106,7 @@
 
 <!-- TAB 1: SCANNER -->
 <div id="tab-scan" class="section active">
-  <div id="scanner-container"><div class="scan-line"></div></div>
+  <div id="scanner-container"><div id="reader"></div></div>
   <button class="btn btn-secondary" onclick="startScanner()" id="btn-start-scan">Spusti kameru</button>
 
   <div class="name-search-row">
@@ -118,7 +119,7 @@
   <div class="or-divider">alebo zadaj EAN kod</div>
 
   <div class="ean-manual-row">
-    <input type="number" id="ean-manual-input" placeholder="Zadaj EAN kod rucne" inputmode="numeric">
+    <input type="text" id="ean-manual-input" placeholder="Zadaj EAN kod rucne" inputmode="numeric" pattern="[0-9]*">
     <button onclick="manualEanLookup()">Hladaj</button>
   </div>
 
@@ -202,19 +203,20 @@
 <div class="toast" id="toast">Pridane!</div>
 
 <script>
-// ═══════ CONFIG ═══════
+// ══════════ CONFIG ══════════
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby9-yZuhlYyNEkyldO09LJx84ehwNJkQDLOYq8WHeuTf_sa7yx2guMyi2w-HNHrQjzy/exec';
 
-// ═══════ STATE ═══════
+// ══════════ STATE ══════════
 let todayLog = [];
 let selectedMeal = 'breakfast';
 let scannedNutrientsPer100 = null;
 let lastScannedEan = null;
 let lastProductSource = null;
 let scannerRunning = false;
+let html5QrCode = null;
 let myProductsCache = [];
 
-// ═══════ HELPER: volanie Google Apps Script ═══════
+// ══════════ HELPER: volanie Google Apps Script ══════════
 async function callScript(action, data) {
   try {
     const payload = { action: action, ...data };
@@ -230,7 +232,7 @@ async function callScript(action, data) {
   }
 }
 
-// ═══════ TABS ═══════
+// ══════════ TABS ══════════
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', ['scan','manual','log'][i] === tab));
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -239,7 +241,7 @@ function switchTab(tab) {
   if (tab !== 'scan' && scannerRunning) stopScanner();
 }
 
-// ═══════ MEAL PILLS ═══════
+// ══════════ MEAL PILLS ══════════
 document.querySelectorAll('.meal-pills').forEach(c => {
   c.addEventListener('click', e => {
     const pill = e.target.closest('.meal-pill');
@@ -250,7 +252,7 @@ document.querySelectorAll('.meal-pills').forEach(c => {
   });
 });
 
-// ═══════ BARCODE SCANNER ═══════
+// ══════════ BARCODE SCANNER (html5-qrcode) ══════════
 function startScanner() {
   const btn = document.getElementById('btn-start-scan');
   if (scannerRunning) { stopScanner(); return; }
@@ -258,35 +260,73 @@ function startScanner() {
   scannerRunning = true;
   document.getElementById('scan-status').textContent = 'Hladam ciarovy kod...';
   hideCards();
-  Quagga.init({
-    inputStream: { type: "LiveStream", target: document.getElementById('scanner-container'),
-      constraints: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } } },
-    decoder: { readers: ["ean_reader", "ean_8_reader", "upc_reader", "upc_e_reader"] },
-    locate: true
-  }, function(err) {
-    if (err) { document.getElementById('scan-status').textContent = 'Chyba kamery: ' + err.message; scannerRunning = false; btn.textContent = 'Spusti kameru'; return; }
-    Quagga.start();
-  });
-  Quagga.onDetected(function(result) {
-    const code = result.codeResult.code;
-    document.getElementById('scan-status').textContent = 'Kod: ' + code + ' — hladam produkt...';
-    stopScanner();
-    lookupProduct(code);
+
+  html5QrCode = new Html5Qrcode("reader");
+  html5QrCode.start(
+    { facingMode: "environment" },
+    {
+      fps: 10,
+      qrbox: { width: 280, height: 120 },
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E
+      ]
+    },
+    (decodedText) => {
+      // Validuj EAN check digit
+      if (!validateEan(decodedText)) {
+        document.getElementById('scan-status').textContent = 'Neplatny kod, skusam znova...';
+        return;
+      }
+      document.getElementById('scan-status').textContent = 'Kod: ' + decodedText + ' — hladam produkt...';
+      stopScanner();
+      lookupProduct(decodedText);
+    },
+    () => { /* scan miss — ignoruj */ }
+  ).catch(err => {
+    document.getElementById('scan-status').textContent = 'Chyba kamery: ' + err;
+    scannerRunning = false;
+    btn.textContent = 'Spusti kameru';
   });
 }
 
-function stopScanner() { try { Quagga.stop(); } catch(e) {} scannerRunning = false; document.getElementById('btn-start-scan').textContent = 'Spusti kameru'; }
+function stopScanner() {
+  if (html5QrCode && scannerRunning) {
+    html5QrCode.stop().then(() => { html5QrCode.clear(); }).catch(() => {});
+  }
+  scannerRunning = false;
+  document.getElementById('btn-start-scan').textContent = 'Spusti kameru';
+}
 
-// ═══════ MANUÁLNE ZADANIE EAN ═══════
+// ══════════ EAN VALIDÁCIA (check digit) ══════════
+function validateEan(code) {
+  if (!code || !/^\d{8}$|^\d{12,13}$/.test(code)) return false;
+  const digits = code.split('').map(Number);
+  const check = digits.pop();
+  let sum = 0;
+  const len = digits.length;
+  digits.forEach((d, i) => {
+    sum += (len === 12 || len === 7) ? (i % 2 === 0 ? d : d * 3) : (i % 2 === 0 ? d * 3 : d);
+  });
+  return (10 - (sum % 10)) % 10 === check;
+}
+
+// ══════════ MANUÁLNE ZADANIE EAN ══════════
 function manualEanLookup() {
-  const ean = document.getElementById('ean-manual-input').value.trim();
+  const ean = document.getElementById('ean-manual-input').value.trim().replace(/\D/g, '');
   if (!ean) { showToast('Zadaj EAN kod!'); return; }
+  if (ean.length >= 8 && !validateEan(ean)) {
+    showToast('Neplatny EAN kod — skontroluj cisla');
+    return;
+  }
   document.getElementById('scan-status').textContent = 'Hladam kod: ' + ean + '...';
   hideCards();
   lookupProduct(ean);
 }
 
-// ═══════ HLAVNÉ HĽADANIE — najprv internet, potom MyProducts, potom ručne ═══════
+// ══════════ HLAVNÉ HĽADANIE — najprv internet, potom MyProducts, potom ručne ══════════
 async function lookupProduct(barcode) {
   lastScannedEan = barcode;
   const status = document.getElementById('scan-status');
@@ -299,13 +339,21 @@ async function lookupProduct(barcode) {
     if (data.status === 1 && data.product) {
       const p = data.product, n = p.nutriments || {};
       const name = p.product_name || p.product_name_sk || p.product_name_cs || 'Neznamy produkt';
+      // Robust kcal extraction — fallback from kJ if kcal missing
+      let kcalVal = n['energy-kcal_100g'] || n['energy-kcal'] || n['energy-kcal_serving'] || 0;
+      if (!kcalVal && n['energy_100g']) {
+        kcalVal = Math.round(n['energy_100g'] / 4.184); // kJ → kcal
+      }
+      if (!kcalVal && n['energy-kj_100g']) {
+        kcalVal = Math.round(n['energy-kj_100g'] / 4.184);
+      }
       const product = {
         name: name,
         brand: p.brands || '',
-        kcal: Math.round(n['energy-kcal_100g'] || n['energy-kcal'] || 0),
-        protein: Math.round((n.proteins_100g || 0) * 10) / 10,
-        carbs: Math.round((n.carbohydrates_100g || 0) * 10) / 10,
-        fats: Math.round((n.fat_100g || 0) * 10) / 10
+        kcal: Math.round(kcalVal),
+        protein: Math.round((n.proteins_100g || n.proteins || 0) * 10) / 10,
+        carbs: Math.round((n.carbohydrates_100g || n.carbohydrates || 0) * 10) / 10,
+        fats: Math.round((n.fat_100g || n.fat || 0) * 10) / 10
       };
       showProduct(product, 'off', barcode);
       return;
@@ -326,7 +374,7 @@ async function lookupProduct(barcode) {
   showNotFound(barcode);
 }
 
-// ═══════ ZOBRAZENIE NÁJDENÉHO PRODUKTU ═══════
+// ══════════ ZOBRAZENIE NÁJDENÉHO PRODUKTU ══════════
 function showProduct(product, source, barcode) {
   scannedNutrientsPer100 = product;
   lastProductSource = source;
@@ -356,7 +404,7 @@ function showProduct(product, source, barcode) {
   document.getElementById('scan-status').textContent = 'Produkt najdeny! Zadaj gramaz a klikni Pridat.';
 }
 
-// ═══════ PRODUKT NENÁJDENÝ ═══════
+// ══════════ PRODUKT NENÁJDENÝ ══════════
 function showNotFound(barcode) {
   lastScannedEan = barcode;
   document.getElementById('scanned-product').classList.remove('visible');
@@ -376,7 +424,7 @@ function hideCards() {
   document.getElementById('notfound-card').classList.remove('visible');
 }
 
-// ═══════ ULOŽIŤ DO MyProducts (z Open Food Facts) ═══════
+// ══════════ ULOŽIŤ DO MyProducts (z Open Food Facts) ══════════
 async function saveToMyProducts() {
   if (!scannedNutrientsPer100 || !lastScannedEan) return;
   const result = await callScript('saveMyProduct', {
@@ -400,7 +448,7 @@ async function saveToMyProducts() {
   }
 }
 
-// ═══════ ULOŽIŤ NOVÝ PRODUKT (ručne zadaný) ═══════
+// ══════════ ULOŽIŤ NOVÝ PRODUKT (ručne zadaný) ══════════
 async function saveNewProduct() {
   const name = document.getElementById('new-prod-name').value.trim();
   if (!name) { showToast('Zadaj nazov produktu!'); return; }
@@ -424,7 +472,7 @@ async function saveNewProduct() {
   }
 }
 
-// ═══════ LOG SCANNED ═══════
+// ══════════ LOG SCANNED ══════════
 async function logScannedFood() {
   if (!scannedNutrientsPer100) return;
   const grams = parseFloat(document.getElementById('scan-grams').value) || 100;
@@ -445,7 +493,7 @@ async function logScannedFood() {
   document.getElementById('scan-status').textContent = 'Skenuj dalsi produkt.';
 }
 
-// ═══════ LOG MANUAL ═══════
+// ══════════ LOG MANUAL ══════════
 async function logManualFood() {
   const name = document.getElementById('man-name').value.trim();
   if (!name) { showToast('Zadaj nazov jedla!'); return; }
@@ -469,7 +517,7 @@ async function logManualFood() {
   document.getElementById('man-fats').value = '';
 }
 
-// ═══════ SUMMARY ═══════
+// ══════════ SUMMARY ══════════
 function updateSummary() {
   let tK=0, tP=0, tC=0, tF=0;
   todayLog.forEach(e => { tK+=e.kcal; tP+=e.protein; tC+=e.carbs; tF+=e.fats; });
@@ -482,7 +530,7 @@ function updateSummary() {
   list.innerHTML = todayLog.map(e => `<div class="log-item"><div><div class="log-item-name">${e.name}</div><div class="log-item-detail">${e.time} · ${e.meal} · ${e.grams}g · P:${e.protein} C:${e.carbs} F:${e.fats}</div></div><div class="log-item-kcal">${e.kcal}</div></div>`).reverse().join('');
 }
 
-// ═══════ SYNC TOTALS ═══════
+// ══════════ SYNC TOTALS ══════════
 async function syncTotalsToSheet() {
   let tK=0, tP=0, tC=0, tF=0;
   todayLog.forEach(e => { tK+=e.kcal; tP+=e.protein; tC+=e.carbs; tF+=e.fats; });
@@ -491,14 +539,14 @@ async function syncTotalsToSheet() {
   else { showToast('Chyba pri odosielani'); }
 }
 
-// ═══════ TOAST ═══════
+// ══════════ TOAST ══════════
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2000);
 }
 
-// ═══════ AUTOCOMPLETE — NAČÍTANIE PRODUKTOV ═══════
+// ══════════ AUTOCOMPLETE — NAČÍTANIE PRODUKTOV ══════════
 async function loadMyProducts() {
   try {
     const result = await callScript('getAllMyProducts', {});
@@ -512,7 +560,7 @@ async function loadMyProducts() {
 // Načítaj produkty pri štarte
 loadMyProducts();
 
-// ═══════ AUTOCOMPLETE — LOGIKA ═══════
+// ══════════ AUTOCOMPLETE — LOGIKA ══════════
 function filterProducts(query) {
   if (!query || query.length < 2) return [];
   const q = query.toLowerCase();
@@ -547,7 +595,7 @@ document.addEventListener('click', e => {
   if (!e.target.closest('.autocomplete-wrap')) closeAllAc();
 });
 
-// ═══════ SCAN TAB — hľadanie podľa názvu ═══════
+// ══════════ SCAN TAB — hľadanie podľa názvu ══════════
 const scanNameInput = document.getElementById('scan-name-search');
 const scanAcList = document.getElementById('scan-ac-list');
 
@@ -560,7 +608,7 @@ scanNameInput.addEventListener('input', () => {
   });
 });
 
-// ═══════ MANUAL TAB — autocomplete podľa názvu ═══════
+// ══════════ MANUAL TAB — autocomplete podľa názvu ══════════
 const manNameInput = document.getElementById('man-name');
 const manAcList = document.getElementById('man-ac-list');
 
